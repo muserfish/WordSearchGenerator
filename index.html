@@ -1,763 +1,325 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Puzzle & Prose Co — KDP Puzzle Builder v4.8.0</title>
-<style>
-  :root{ --bg:#0f1115; --panel:#171a21; --ink:#eaeef6; --muted:#9aa4b2; --card:#1b1f27; --border:#2a2f3a; --accent:#2a6bff; }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,Segoe UI,Arial}
-  header{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:16px;background:var(--panel)}
-  header h1{margin:0;font-size:16px;letter-spacing:.4px;color:#fff}
-  header .tag{padding:2px 8px;border:1px solid var(--border);border-radius:999px;color:#cbd5e1;font-size:12px}
-  main{display:grid;grid-template-columns:360px 1fr;min-height:calc(100vh - 56px)}
-  aside{padding:16px;border-right:1px solid var(--border);background:var(--panel);overflow:auto}
-  section{padding:16px;overflow:auto}
-  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px}
-  label{display:block;margin-top:10px;margin-bottom:4px;color:#cfd6e4;font-weight:600}
-  input,select,textarea,button{width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:#0e1117;color:#e8eef8}
-  textarea{min-height:90px;resize:vertical}
-  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  button{background:linear-gradient(180deg,#2a6bff,#1b1fd8);border:none;cursor:pointer;font-weight:700}
-  button.secondary{background:#141824;border:1px solid var(--border)}
-  button:disabled{opacity:.6;cursor:not-allowed}
-  #preview{width:100%;height:980px;border:1px dashed var(--border);border-radius:10px;background:#0e1117;display:block}
-  #log{background:#0a0d14;color:#9ef2b0;padding:10px;height:230px;overflow:auto;border-radius:8px;font-family:ui-monospace,Consolas,monospace;white-space:pre-wrap}
-  .muted{color:var(--muted)}
-</style>
-<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-</head>
-<body>
-<header>
-  <h1>Puzzle & Prose Co — KDP Puzzle Builder</h1>
-  <span class="tag">v4.8.0</span>
-  <span class="muted">Crossword variety · GPT clues (batched) · Integrity checks</span>
-</header>
-
-<main>
-  <aside>
-    <div class="card">
-      <div class="row">
-        <div>
-          <label>Book Type</label>
-          <select id="bookType">
-            <option value="sudoku">Sudoku</option>
-            <option value="wordsearch">Word Search</option>
-            <option value="crossword">Crossword</option>
-          </select>
-        </div>
-        <div>
-          <label>Difficulty</label>
-          <select id="difficulty">
-            <option value="easy">Easy</option>
-            <option value="medium" selected>Medium</option>
-            <option value="hard">Hard</option>
-            <option value="mixed">Mixed</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="row">
-        <div>
-          <label>Total Pages</label>
-          <input id="pages" type="number" value="120" min="20" step="2"/>
-        </div>
-        <div>
-          <label>Trim</label>
-          <select id="trim">
-            <option value="letter">8.5 × 11 in (Letter)</option>
-          </select>
-        </div>
-      </div>
-
-      <label>Title</label>
-      <input id="title" placeholder="e.g., The Giant Puzzle Book"/>
-
-      <label>Subtitle</label>
-      <input id="subtitle" placeholder="Optional subtitle"/>
-
-      <label>Author / Imprint</label>
-      <input id="author" value="Puzzle & Prose Co"/>
-
-      <hr style="border:none;border-top:1px solid var(--border);margin:12px 0"/>
-
-      <div class="row" style="margin-top:8px">
-        <button id="btnSuggest" class="secondary">Get GPT Suggestions</button>
-        <button id="btnExpand" class="secondary">Expand Wordlists to 60</button>
-      </div>
-
-      <label>Themes (one per line)</label>
-      <textarea id="themes" placeholder="BIRDS&#10;OCEAN&#10;GARDEN"></textarea>
-
-      <label>Word Lists (CSV — THEME, WORD1, WORD2, ...)</label>
-      <textarea id="wordlists" placeholder="BIRDS, ROBIN, SWALLOW, EAGLE, FALCON, PARROT, ..."></textarea>
-
-      <div class="row" style="margin-top:10px">
-        <button id="btnPlan">Prepare Puzzles</button>
-        <button id="btnInterior">Build Interior PDF</button>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <button id="btnCover">Build Cover PDF</button>
-        <button id="btnCancel" class="secondary" disabled>Cancel Build</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="row">
-        <button id="btnClearLog" class="secondary">Clear Log</button>
-        <a id="dlLast" class="secondary" style="text-align:center;display:block;padding:10px;text-decoration:none;border-radius:8px;border:1px solid var(--border);color:#dbe4f3" href="#" download>Download last PDF</a>
-      </div>
-      <label>Log</label>
-      <div id="log"></div>
-    </div>
-  </aside>
-
-  <section>
-    <div class="card">
-      <label>Preview</label>
-      <canvas id="preview"></canvas>
-      <div class="muted" style="margin-top:6px">Preview shows the first puzzle; export uses the cached plan.</div>
-    </div>
-  </section>
-</main>
-
-<script>
-/* =======================
-   Config (optional GPT)
-   Leave empty to run fully offline.
-======================= */
-const FORCE_API_KEY    = "";     // "sk-..." or "sk-proj-..."
-const FORCE_PROJECT_ID = "";     // "proj_..." (required for sk-proj-)
-const FORCE_ORG_ID     = "";     // optional
-
-/* =======================
-   Utilities & State
-======================= */
-const $ = id => document.getElementById(id);
-const Log = { write(...a){ const el=$("log"); el.textContent += a.join(" ") + "\n"; el.scrollTop = el.scrollHeight; } };
-window.addEventListener('error', e=> Log.write('JS Error:', e.message));
-
-let RNG = Math.random;
-function randi(n){ return Math.floor(RNG()*n); }
-function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=randi(i+1); [a[i],a[j]]=[a[j],a[i]]; } return a; }
-
-const STATE = { plan: { sudoku:[], wordsearch:[], crossword:[] }, worker:null, cancel:false };
-
-function parseThemes(){ const t=$("themes").value.trim(); return t? t.split(/\n+/).map(s=>s.trim()).filter(Boolean):[]; }
-function parseWordlists(){
-  const txt = $("wordlists").value.trim(); if(!txt) return [];
-  const lines = txt.split(/\n+/).map(s=>s.trim()).filter(Boolean); const out=[];
-  for(const line of lines){
-    const parts=line.split(/\s*,\s*/).map(x=>x.trim()).filter(Boolean);
-    if(!parts.length) continue;
-    const theme=(parts[0]||'MISC').toUpperCase().replace(/[^A-Z0-9 ]/g,'');
-    const words=parts.slice(1).map(w=>w.toUpperCase().replace(/[^A-Z]/g,'')).filter(Boolean);
-    out.push({ theme, words });
-  }
-  return out;
-}
-const hasAPI = ()=> !!(FORCE_API_KEY && FORCE_API_KEY.trim());
-
-/* =======================
-   OpenAI (optional)
-======================= */
-async function openaiJSON(prompt){
-  const key  = (FORCE_API_KEY||"").trim();
-  if(!key) throw new Error("No API key configured — set FORCE_API_KEY at the top.");
-  const proj = (FORCE_PROJECT_ID||"").trim();
-  const org  = (FORCE_ORG_ID||"").trim();
-
-  const headers = { "Content-Type":"application/json", "Authorization":`Bearer ${key}` };
-  if(key.startsWith("sk-proj-") && proj) headers["OpenAI-Project"] = proj;
-  if(org) headers["OpenAI-Organization"] = org;
-
-  const body = { model:"gpt-4o-mini", temperature:0.2, response_format:{type:"json_object"}, messages:[{role:"user", content: prompt}] };
-
-  const res = await fetch("https://api.openai.com/v1/chat/completions", { method:"POST", headers, body: JSON.stringify(body) });
-  const text = await res.text();
-  if(!res.ok){ throw new Error(text); }
-
-  let content;
-  try{ const j=JSON.parse(text); content=(j?.choices?.[0]?.message?.content||"").trim(); }catch{ throw new Error("Unexpected API response"); }
-  if(/^```/.test(content)) content = content.replace(/^```[a-zA-Z]*\n?|```$/g,"");
-  try{ return JSON.parse(content); }catch{ const m=content.match(/\{[\s\S]*\}/); if(!m) throw new Error("No JSON found"); return JSON.parse(m[0]); }
-}
-
-/* =======================
-   Sudoku
-======================= */
-const Sudoku = (function(){
-  function solved(){
-    const g=Array.from({length:9},()=>Array(9).fill(0));
-    const nums=[1,2,3,4,5,6,7,8,9];
-    function can(r,c,v){
-      for(let i=0;i<9;i++) if(g[r][i]===v||g[i][c]===v) return false;
-      const br=Math.floor(r/3)*3, bc=Math.floor(c/3)*3;
-      for(let rr=br;rr<br+3;rr++) for(let cc=bc;cc<bc+3;cc++) if(g[rr][cc]===v) return false;
-      return true;
-    }
-    function solve(k=0){
-      if(k===81) return true;
-      const r=Math.floor(k/9), c=k%9;
-      const order=shuffle(nums.slice());
-      for(const v of order){ if(can(r,c,v)){ g[r][c]=v; if(solve(k+1)) return true; g[r][c]=0; } }
-      return false;
-    }
-    solve(0); return g;
-  }
-  function mask(sol,diff){
-    const clues = { easy:40, medium:32, hard:26 }[diff] || 32;
-    const g = sol.map(r=>r.slice()); let rem=81-clues;
-    while(rem>0){
-      const r=randi(9), c=randi(9);
-      if(g[r][c]!==0){
-        const r2=8-r, c2=8-c;
-        g[r][c]=0; rem--;
-        if(rem>0 && g[r2][c2]!==0){ g[r2][c2]=0; rem--; }
-      }
-    }
-    return g;
-  }
-  function draw(ctx, grid, title, withNote=false){
-    const W=800,H=1000; ctx.canvas.width=W; ctx.canvas.height=H;
-    ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);
-    ctx.fillStyle="#000"; ctx.font="bold 22px Arial"; ctx.fillText(title, 40, 40);
-    if(withNote){ ctx.font="12px Arial"; ctx.fillText("Fill digits 1–9. No repeats in rows, columns, or 3×3 boxes.", 40, 62); }
-    const size=Math.min(W-80,H-140), cell=size/9, x0=40, y0=90; ctx.strokeStyle="#000"; ctx.lineWidth=1;
-    for(let r=0;r<9;r++) for(let c=0;c<9;c++){
-      const x=x0+c*cell, y=y0+r*cell; ctx.strokeRect(x,y,cell,cell);
-      const v=grid[r][c];
-      if(v){ ctx.font=`${Math.floor(cell*0.6)}px Arial`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(String(v), x+cell/2, y+cell/2); }
-    }
-    ctx.lineWidth=3; for(let i=0;i<=9;i+=3){
-      ctx.beginPath(); ctx.moveTo(x0, y0+i*cell); ctx.lineTo(x0+9*cell, y0+i*cell); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(x0+i*cell, y0); ctx.lineTo(x0+i*cell, y0+9*cell); ctx.stroke();
-    }
-  }
-  return { solved, mask, draw };
-})();
-
-/* =======================
-   Word Search
-======================= */
-const WordSearch = (function(){
-  function cleanWords(words){
-    return (words||[]).map(w=>w.toUpperCase().replace(/[^A-Z]/g,'')).filter(w=>w.length>=3);
-  }
-  function chooseGridSize(words, base=14){
-    const maxLen = words.reduce((m,w)=>Math.max(m,w.length), 0) || base;
-    return Math.max(10, Math.min(18, Math.max(base, maxLen+1)));
-  }
-  function gen(wordsRaw, baseSize=14){
-    let words = cleanWords(wordsRaw);
-    if(words.length>24) words = words.slice(0,24);
-    const size = chooseGridSize(words, baseSize);
-    words = words.filter(w=>w.length<=size);
-
-    const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
-    const grid=Array.from({length:size},()=>Array(size).fill(''));
-    const placements=[];
-    function canPlace(w,r,c,dr,dc){
-      const rr=r+dr*(w.length-1), cc=c+dc*(w.length-1);
-      if(rr<0||rr>=size||cc<0||cc>=size) return false;
-      for(let i=0;i<w.length;i++){
-        const ch=grid[r+dr*i][c+dc*i];
-        if(ch && ch!==w[i]) return false;
-      }
-      return true;
-    }
-    function place(w){
-      for(let t=0;t<400;t++){
-        const [dr,dc]=dirs[randi(dirs.length)], r=randi(size), c=randi(size);
-        if(canPlace(w,r,c,dr,dc)){
-          const cells=[];
-          for(let i=0;i<w.length;i++){ grid[r+dr*i][c+dc*i]=w[i]; cells.push([r+dr*i,c+dc*i]); }
-          placements.push({word:w, cells}); return true;
-        }
-      }
-      return false;
-    }
-
-    words.sort((a,b)=>b.length-a.length || a.localeCompare(b));
-    const placed=[];
-    for(const w of words){ if(place(w)) placed.push(w); }
-
-    if(placed.length===0 && words.length){
-      let row=0,col=0;
-      for(const w of words.slice(0,8)){
-        if(w.length<=size && row<size){
-          for(let i=0;i<w.length;i++) grid[row][col+i]=w[i];
-          const cells=[]; for(let i=0;i<w.length;i++) cells.push([row,col+i]);
-          placements.push({word:w, cells}); placed.push(w);
-          row+=2; col=0;
-        }
-      }
-    }
-
-    const ALPHA="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    for(let r=0;r<size;r++) for(let c=0;c<size;c++) if(!grid[r][c]) grid[r][c]=ALPHA[randi(ALPHA.length)];
-
-    const answerSet=new Set(); placements.forEach(p=>p.cells.forEach(([r,c])=>answerSet.add(r+','+c)));
-    const wordsList = placed.slice().sort((a,b)=>a.length-b.length||a.localeCompare(b));
-
-    return { size, grid, placements, answerSet, wordsList };
-  }
-  function draw(ctx, ws, title){
-    const W=800,H=1000; ctx.canvas.width=W; ctx.canvas.height=H;
-    ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);
-    ctx.fillStyle="#000"; ctx.font="bold 22px Arial"; ctx.fillText(title, 40, 40);
-    const n=ws.size, size=Math.min(520,H-160), cell=size/n, x0=40, y0=80;
-    ctx.strokeStyle="#000"; ctx.lineWidth=1; ctx.textAlign='center'; ctx.textBaseline='middle';
-    for(let r=0;r<n;r++) for(let c=0;c<n;c++){
-      const x=x0+c*cell, y=y0+r*cell; ctx.strokeRect(x,y,cell,cell);
-      ctx.font=`${Math.floor(cell*0.5)}px Arial`; ctx.fillText(ws.grid[r][c], x+cell/2, y+cell/2);
-    }
-    const cx=x0+size+24, top=y0; ctx.font="bold 16px Arial"; ctx.textAlign='left'; ctx.textBaseline='top'; ctx.fillText("WORD LIST", cx, top);
-    ctx.font="12px Arial"; let y=top+22;
-    const list = ws.wordsList && ws.wordsList.length ? ws.wordsList : [];
-    if(list.length===0){ ctx.fillText("(none placed — check word lengths)", cx, y); }
-    else { for(const w of list){ ctx.fillText(w, cx, y); y+=16; } }
-  }
-  function drawSolution(ctx, ws, title){
-    const W=800,H=1000; ctx.canvas.width=W; ctx.canvas.height=H;
-    ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);
-    ctx.fillStyle="#000"; ctx.font="bold 22px Arial"; ctx.fillText(title, 40, 40);
-    const n=ws.size, size=Math.min(640,H-160), cell=size/n, x0=40, y0=80;
-    ctx.strokeStyle="#000"; ctx.lineWidth=1; ctx.textAlign='center'; ctx.textBaseline='middle';
-    for(let r=0;r<n;r++) for(let c=0;c<n;c++){
-      const x=x0+c*cell, y=y0+r*cell; ctx.strokeRect(x,y,cell,cell);
-      const key=r+','+c; const isAns=ws.answerSet && ws.answerSet.has(key);
-      ctx.font=(isAns?'bold ':'')+`${Math.floor(cell*0.5)}px Arial`;
-      ctx.fillText(ws.grid[r][c], x+cell/2, y+cell/2);
-    }
-  }
-  return { gen, draw, drawSolution };
-})();
-
-/* =======================
-   Crossword DRAW (solver runs in worker)
-======================= */
-const CrosswordDraw = (function(){
-  function drawPuzzle(ctx, grid, numbers, title, clues){
-    const W=800,H=1000; ctx.canvas.width=W; ctx.canvas.height=H;
-    ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
-    ctx.fillStyle='#000'; ctx.font='bold 22px Arial'; ctx.textAlign='left'; ctx.textBaseline='top'; ctx.fillText(title, 40, 36);
-    const n=grid.length, side=Math.min(520,H-160), cell=side/n, x0=40, y0=80; ctx.strokeStyle='#000'; ctx.lineWidth=1;
-    for(let r=0;r<n;r++)for(let c=0;c<n;c++){
-      const x=x0+c*cell, y=y0+r*cell; ctx.strokeRect(x,y,cell,cell);
-      if(grid[r][c]==='#'){ ctx.fillRect(x,y,cell,cell); }
-      else { const no=numbers[r][c]; if(no){ ctx.font=`${Math.floor(cell*0.28)}px Arial`; ctx.textAlign='left'; ctx.textBaseline='top'; ctx.fillText(String(no), x+2, y+2); } }
-    }
-    const cx=x0+side+24, cw=W-cx-24; let y=y0;
-    function put(text,bold=false){
-      ctx.font=(bold?'bold ':'')+'12px Arial'; ctx.textAlign='left'; ctx.textBaseline='top';
-      const words=String(text||'').split(' '); let line=''; for(const w of words){
-        const t=line?line+' '+w:w; if(ctx.measureText(t).width>cw){ ctx.fillText(line,cx,y); y+=16; line=w; } else line=t;
-      }
-      if(line){ ctx.fillText(line,cx,y); y+=16; }
-    }
-    function maskedClue(w){ var L=w.length; if(L<=2) return w+' ('+L+')'; var mid=''; for(var i=0;i<L-2;i++){ mid+='_ '; } return w[0]+' '+mid.trim()+' '+w[L-1]+' ('+L+')'; }
-    put('ACROSS', true); for(const a of (clues?.across||[])){ const txt=(a&&a.clue&&a.clue.trim())? (a.no+'. '+a.clue) : (a.no+'. '+maskedClue(a.answer||'')); put(txt); }
-    y+=6; put('DOWN', true); for(const d of (clues?.down||[])){ const txt=(d&&d.clue&&d.clue.trim())? (d.no+'. '+d.clue) : (d.no+'. '+maskedClue(d.answer||'')); put(txt); }
-  }
-  function drawSolution(ctx, grid, numbers, title){
-    const W=800,H=1000; ctx.canvas.width=W; ctx.canvas.height=H;
-    ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
-    ctx.fillStyle='#000'; ctx.font='bold 22px Arial'; ctx.textAlign='left'; ctx.textBaseline='top'; ctx.fillText(title, 40, 36);
-    const n=grid.length, side=Math.min(700,H-160), cell=side/n, x0=(W-side)/2, y0=100; ctx.strokeStyle='#000'; ctx.lineWidth=1;
-    for(let r=0;r<n;r++)for(let c=0;c<n;c++){
-      const x=x0+c*cell, y=y0+r*cell; ctx.strokeRect(x,y,cell,cell);
-      if(grid[r][c]==='#'){ ctx.fillRect(x,y,cell,cell); }
-      else {
-        const no=numbers[r][c]; if(no){ ctx.font=`${Math.floor(cell*0.22)}px Arial`; ctx.textAlign='left'; ctx.textBaseline='top'; ctx.fillText(String(no), x+2, y+2); }
-        const ch=grid[r][c]; if(ch && ch!=='.'){ ctx.font=`${Math.floor(cell*0.6)}px Arial`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(ch, x+cell/2, y+cell/2); }
-      }
-    }
-  }
-  return { drawPuzzle, drawSolution };
-})();
-
-/* =======================
-   Preview
-======================= */
-function pickDiff(i,n,mode){ if(mode==='mixed'){ const m=['easy','medium','hard']; return m[i % m.length]; } return mode||'medium'; }
-function renderPreview(){
-  const canvas=$("preview"); const ctx=canvas.getContext('2d');
-  ctx.fillStyle="#101317"; ctx.fillRect(0,0,canvas.width=800,canvas.height=980);
-  const t=$("bookType").value; const first=(STATE.plan[t]||[])[0];
-  if(!first){ ctx.fillStyle="#9aa4b2"; ctx.font="14px Arial"; ctx.fillText("No plan yet. Click Prepare Puzzles.",24,30); return; }
-  if(t==='sudoku') Sudoku.draw(ctx, first.puzzle, first.title, true);
-  if(t==='wordsearch') WordSearch.draw(ctx, first.ws, first.title);
-  if(t==='crossword') CrosswordDraw.drawPuzzle(ctx, first.grid, first.numbers, first.title, first.clues);
-}
-
-/* =======================
-   GPT buttons (respect existing Title/Subtitle)
-======================= */
-$("btnSuggest").onclick = async ()=>{
-  try{
-    Log.write('Requesting GPT suggestions...');
-    const t=$("bookType").value;
-    const titleNow = ($("title").value||'').trim();
-    const subtitleNow = ($("subtitle").value||'').trim();
-
-    const prompt = `You generate puzzle book metadata.
-Return STRICT JSON with keys:
-- "title": string
-- "subtitle": string
-- "themes": array of 8 strings
-- "wordlists": array of { theme: string, words: array of 35-60 UPPERCASE A-Z words (3-11 letters; mix of 3-5, 6-8, 9-11) }
-
-Rules:
-- Book type: ${t.toUpperCase()}.
-- If a current title is provided, DO NOT change it; use it as context for themes and wordlists.
-- If a current subtitle is provided, DO NOT change it; otherwise create one.
-Current title: "${titleNow || '(empty)'}"
-Current subtitle: "${subtitleNow || '(empty)'}"
-No commentary.`;
-
-    const j = await openaiJSON(prompt);
-    if(!titleNow && j.title) $("title").value=j.title;
-    if(!subtitleNow && j.subtitle) $("subtitle").value=j.subtitle;
-
-    $("themes").value=(j.themes||[]).join("\n");
-    $("wordlists").value=(j.wordlists||[]).map(o=>[o.theme,...(o.words||[])].join(", ")).join("\n");
-    Log.write('✓ Suggestions loaded (existing title/subtitle preserved).');
-  }catch(e){ Log.write('Suggest error:', e.message); }
-};
-
-$("btnExpand").onclick = async ()=>{
-  try{
-    let wls = parseWordlists(); const themes=parseThemes();
-    if(!wls.length && themes.length) wls = themes.map(t=>({theme:t.toUpperCase(), words:[]}));
-    if(!wls.length) return Log.write('Expand: add themes or some wordlists first.');
-    Log.write('Expanding wordlists to 60 via GPT...');
-    const tasks = wls.map(async w=>{
-      if((w.words||[]).length >= 60) return w;
-      const prompt = `Theme: ${w.theme}. Return JSON {words:[...]} of NEW uppercase A-Z words to reach 60 total. Only 3-11 letters, no hyphens/spaces, avoid duplicates. Provide exactly ${60 - (w.words||[]).length} words.`;
-      const j = await openaiJSON(prompt);
-      const merged = new Set([...(w.words||[]), ...((j.words||[]).map(s=>String(s||'').toUpperCase().replace(/[^A-Z]/g,'')))].filter(Boolean));
-      return { theme:w.theme, words:Array.from(merged).slice(0,60) };
-    });
-    const out = await Promise.all(tasks);
-    $("wordlists").value = out.map(o=>[o.theme,...o.words].join(", ")).join("\n");
-    Log.write('✓ Wordlists expanded.');
-  }catch(e){ Log.write('Expand error:', e.message); }
-};
-
-/* =======================
-   Crossword Worker (more variants + integrity check)
-======================= */
-function createCrosswordWorkerURL(){
-  var s = [];
-  s.push("(function(){'use strict';");
-  s.push("function randi(n){return Math.floor(Math.random()*n)}function shuffle(a){for(var i=a.length-1;i>0;i--){var j=randi(i+1);var t=a[i];a[i]=a[j];a[j]=t}return a}");
-  // base templates (same shapes as before, plus a couple extras for variety)
-  s.push("var T7=[['..#.#..','. #...#.'.replace(/\\s/g,''),'.......','.#.#.#.','.......','. #...#.'.replace(/\\s/g,''),'..#.#..'],['...#...','..#.#..','.......','#..#..#','.......','..#.#..','...#...'],['..##...','..#.#..','.......','.#.#.#.','.......','..#.#..','...##..']];");
-  s.push("var T9=[['..#...#..','...#.#...','.........','.#..#..#.','...#.#...','.#..#..#.','.........','...#.#...','..#...#..'],['...#.#...','..#...#..','.........','.#..#..#.','..###....','.#..#..#.','.........','..#...#..','...#.#...'],['..##.#..#','.........','.#..#..#.','...#.#...','..###....','...#.#...','.#..#..#.','.........','#..#.##..']];");
-  s.push("var T11=[['...#...#...','..#.....#..','...........','.#..#.#..#.','...#...#...','.....#.....','...#...#...','.#..#.#..#.','...........','..#.....#..','...#...#...'],['....#..#...','..#.....#..','...........','.#..#.#..#.','...#...#...','.....#.....','...#...#...','.#..#.#..#.','...........','..#.....#..','...#..#....'],['..##...##..','...#.#.#...','...........','.#..#.#..#.','...#...#...','.....#.....','...#...#...','.#..#.#..#.','...........','...#.#.#...','..##...##..']];");
-  // grid transforms -> many variants without changing fill rules
-  s.push("function rot(t){var n=t.length;var out=[];for(var r=0;r<n;r++){var row='';for(var c=0;c<n;c++){row+=t[n-1-c][r]}out.push(row)}return out}");
-  s.push("function flipH(t){var n=t.length;var out=[];for(var r=0;r<n;r++){out.push(t[r].split('').reverse().join(''))}return out}");
-  s.push("function flipV(t){var n=t.length;var out=[];for(var r=0;r<n;r++){out.push(t[n-1-r])}return out}");
-  s.push("function uniq(templates){var key=new Set(), out=[];for(var i=0;i<templates.length;i++){var k=templates[i].join('|');if(!key.has(k)){key.add(k);out.push(templates[i])}}return out}");
-  s.push("function variants(pool){var out=[];for(var i=0;i<pool.length;i++){var t=pool[i];out.push(t);var r1=rot(t), r2=rot(r1), r3=rot(r2);out.push(r1,r2,r3);out.push(flipH(t),flipV(t),flipH(r1),flipV(r1))}return uniq(out)}");
-  s.push("var V7=variants(T7), V9=variants(T9), V11=variants(T11);");
-  // lexicon (same + inflections)
-  s.push("function inflect(b){var out=[b];function push(w){if(w.length<=11&&/^[A-Z]+$/.test(w))out.push(w)}if(/E$/.test(b)){push(b+'D');push(b.slice(0,-1)+'ING')}else{push(b+'ED');push(b+'ING')}out.push(b+'S');if(b.length<=9)out.push(b+'ER');if(b.length<=8)out.push(b+'EST');return out}");
-  s.push("var BASE=['RIVER','GARDEN','MARKET','BRIDGE','PLAYER','DEVICE','ENERGY','FUTURE','PUZZLE','FOREST','MOUNTAIN','ANIMAL','PLANET','ORCHARD','HARVEST','COMPASS','NOTEBOOK','SUNLIGHT','SHADOW','MEADOW','COTTAGE','STATION','LIBRARY','BUTTERFLY','HORIZON','FESTIVAL','BLOSSOM','SAPPHIRE','SEASHELL','STARFISH','DOLPHIN','ELEGANCE','SYMPHONY','FIREPLACE','WATERFALL','DRAGONFLY','SUNFLOWER','LANTERN','PATCHWORK','FOOTBRIDGE','STARGAZING','WILDFLOWER','WINDMILL','MEADOWLARK','CARPENTER','TELESCOPE','UNDERLINE','OVERFLOW','SIDEWALK','DAYDREAM','KEYBOARD','PLAYGROUND','AIRFIELD','RAINSTORM','BLACKBIRD','MOONLIGHT','STARLIGHT','ANCHOR','SAILBOAT','LIGHTHOUSE','SEASHORE','SHIPYARD','LEMONADE','SHORTBREAD','PAPERBACK','GOLDEN','SILVER','COPPER','IRONIC','NATURAL','NATURE','EARTHEN','SEASON','AUTUMN','WINTER','SPRING','SUMMER','FLOWERS','PETAL','GARDENS','PAINTER','WRITER','READER','BOOKISH','NOTEBOOKS','HANDBOOK','SANDSTONE','BLUEBERRY','STRAWBERRY','RASPBERRY','HONEYCOMB','RAINBOW','SKYLINE','HARBOR','SEABIRD','ISLANDER','COASTAL','OCEANIC','SHIPMATE','STARSHIP','SPACESHIP','ASTEROID','NEBULA','GALAXIES','ORBITAL','JOURNEY','TRAVELER','EXPLORE','EXPEDITION','FOUNTAIN','MIRROR','WINDOW','PORTRAIT','PICTURE','CANVAS','MELODIC','CHORUS','ORCHESTRA','GUITAR','VIOLIN','DRUMMER','PIANIST','SINGER','WHISPER','SHIMMER','HARVESTS','VILLAGER','COTTAGERS','RIVULET','BROOK','STREAM','RAPIDS','WATERS','SEASIDE','WOODLAND','EVERGREEN','PINECONE','OAKTREE','BIRDHOUSE','FIREFLIES','DRAGON','CASTLE','KINGDOM','VILLAGE','TOWNSHIP','FOUNDRY','WORKSHOP','HANDMADE','CRAFTING','PATTERNS','CHISELED','STONEWORK','BRICKWORK','PAINTWORK','CROSSWORD','WORDSMITH','PUZZLERS','RIDDLE','ENIGMA','KEYSTONE','DOORWAY','HALLWAY','COURTYARD','SUNSET','SUNRISE','MIDNIGHT','DAYLIGHT','STARFALL','STARDUST','MOONRISE','SEASTORM','THUNDER','SNOWFALL','CLOUDY','BREEZES','RAINFALL','OVERCAST','CLEARING','SUNSHINE'];");
-  s.push("var S3=['ACE','ACT','AIR','ANT','ARK','ASH','BEE','BOX','CAR','CAT','DAY','DOG','EAR','EEL','EGG','FAN','FIG','FOG','FOX','FUN','GEM','ICE','INK','JAM','JET','KEY','LAP','LEG','MAP','NAP','OAK','OWL','PEN','PIN','PIT','RUG','SUN','TEA','TIN','TOY','URN','VAN','WAX','YAK','ZOO'];");
-  s.push("var S4=['ABLE','ACRE','ARCH','AREA','AXIS','BARN','BELL','BIRD','BLUE','BOAT','BOLD','BONE','BOOK','BUSH','CALM','CARD','CAVE','CITY','CLAY','CLOUD','COAL','COAT','COIN','COLD','CORN','CREW','DARK','DAWN','DEEP','DEER','DOVE','DUST','EAST','EDGE','FAIR','FALL','FARM','FIRE','FISH','FLAG','FLOOD','FLOW','FOAM','FOUR','FROG','FROST','GATE','GIFT','GLOW','GOLD','GRIP','GROW','HILL','HOME','HOPE','IRON','ISLE','LAKE','LEAF','LIME','LINE','LION','LOOP','MOON','MOSS','NEAR','NEST','NOTE','OATS','OCEAN','PEAK','PEAR','PINE','PLAN','PORT','RAIN','RICE','RING','RISE','RIVER','ROAD','ROCK','ROOF','ROSE','SAGE','SAND','SEED','SHIP','SHORE','SING','SNOW','SONG','STAR','STEM','STORM','SURF','TREE','WAVE','WIND','WOOD'];");
-  s.push("var S5=['ABOVE','ACORN','ALERT','ANGEL','APPLE','ARENA','ARROW','BALER','BEACH','BEAST','BERRY','BLADE','BLOOM','BOATS','BREAD','BRICK','BRUSH','CABLE','CANDY','CEDAR','CHAIR','CHALK','CHARM','CHESS','CLOUD','COAST','COLOR','CORAL','CRAFT','CREEK','CROWN','DAISY','DELTA','DREAM','EARTH','EMBER','FAITH','FAUNA','FIBER','FIELD','FLAME','FLEET','FLUTE','FRAME','FROST','GIANT','GLASS','GRAIN','GRASS','GREEN','GROVE','GUEST','HAPPY','HONEY','IVORY','JEWEL','LEMON','LEVEL','LIGHT','MAPLE','MERCY','MINTY','MOSSY','MUSIC','NORTH','NOVEL','OLIVE','OPERA','ORBIT','PAINT','PASTA','PEACH','PEARL','PEDAL','PIANO','PILOT','PIPER','PLANT','PLATE','PRIDE','PRIZE','QUART','QUEEN','QUIET','RADIO','RIVER','ROBIN','ROCKY','ROTOR','RURAL','SAFARI','SAUCE','SCOPE','SEEDS','SHELL','SHINE','SHORE','SILKY','SMILE','SMOKE','SNACK','SOUTH','SPACE','SPICE','SPLASH','SPOON','STAMP','STARS','STORM','STRAW','SWEET','SWIFT','TANGO','TASTE','THEME','TIGER','TOAST','TRACE','TRAIL','TRAIN','TREAD','TREES','TULIP','TUNES','UNITY','VALOR','VALVE','VAPOR','VENUE','VINES','WATER','WHEAT','WHEEL','WINDY','WINGS','WOODS'];");
-  s.push("function buildDict(userLists){var set=new Set();if(userLists){for(var i=0;i<userLists.length;i++){var row=userLists[i]||{};var ws=row.words||[];for(var k=0;k<ws.length;k++){var ww=String(ws[k]||'').toUpperCase().replace(/[^A-Z]/g,'');if(ww.length>=3&&ww.length<=11)set.add(ww)}}}for(var j=0;j<BASE.length;j++){var w=BASE[j];var inf=inflect(w);for(var m=0;m<inf.length;m++)set.add(inf[m])}S3.forEach(function(w){set.add(w)});S4.forEach(function(w){set.add(w)});S5.forEach(function(w){set.add(w)});var dict=[];set.forEach(function(w){var L=w.length;dict.push(w);if(L>=6&&L<=10)dict.push(w)});var byLen={};dict.forEach(function(w){var L=w.length;(byLen[L]||(byLen[L]=[])).push(w)});for(var key in byLen){var arr=byLen[key];for(var q=arr.length-1;q>0;q--){var j2=randi(q+1);var t=arr[q];arr[q]=arr[j2];arr[j2]=t}}return byLen}");
-  // slots + feasibility
-  s.push("function buildSlots(tpl){var n=tpl.length;var grid=tpl.map(function(r){return r.split('')});function isBlock(r,c){return grid[r][c]==='#'}var slots=[];for(var r=0;r<n;r++)for(var c=0;c<n;c++){if(isBlock(r,c))continue;var start=(c===0||isBlock(r,c-1))&&(c+1<n&&!isBlock(r,c+1));if(start){var len=0,cc=c;while(cc<n&&!isBlock(r,cc)){len++;cc++}if(len>=3)slots.push({dir:'A',r:r,c:c,len:len})}}for(var c2=0;c2<n;c2++)for(var r2=0;r2<n;r2++){if(isBlock(r2,c2))continue;var startD=(r2===0||isBlock(r2-1,c2))&&(r2+1<n&&!isBlock(r2+1,c2));if(startD){var len2=0,rr=r2;while(rr<n&&!isBlock(rr,c2)){len2++;rr++}if(len2>=3)slots.push({dir:'D',r:r2,c:c2,len:len2})}}return{grid:grid,n:n,slots:slots}}");
-  s.push("function feasible(byLen, slots){var needs={};for(var i=0;i<slots.length;i++){var L=slots[i].len;needs[L]=(needs[L]||0)+1}for(var Lk in needs){var arr=byLen[Lk|0]||[];if(!arr||arr.length===0)return {ok:false,len:(Lk|0)} }return {ok:true} }");
-  // fill with MRV + smart reuse + integrity check
-  s.push("function fill(byLen, tpl, maxBacktracks){if(maxBacktracks==null)maxBacktracks=20000;var S=buildSlots(tpl);var feas=feasible(byLen,S.slots);if(!feas.ok){return{ok:false,reason:'no-words-len-'+feas.len}}var grid=S.grid,slots=S.slots;var letters=grid.map(function(row){return row.slice()});var used={};function get(r,c){return grid[r][c]==='#'?'#':(letters[r][c]==='.'?'':letters[r][c])}function place(slot,word){var undo=[];for(var i=0;i<slot.len;i++){var r=slot.r+(slot.dir==='D'?i:0),c=slot.c+(slot.dir==='A'?i:0);undo.push([r,c,letters[r][c]]);letters[r][c]=word[i]}return undo}function unplace(u){for(var i=0;i<u.length;i++){var t=u[i];letters[t[0]][t[1]]=t[2]}}function cands(slot){var pat=[];for(var i=0;i<slot.len;i++){var ch=get(slot.r+(slot.dir==='D'?i:0),slot.c+(slot.dir==='A'?i:0));pat.push(ch==='#'?'#':ch)}var poolAll=(byLen[slot.len]||[]);var pool=poolAll.filter(function(w){return !used[w]});if(pool.length<10)pool=poolAll.slice(0,Math.max(10,poolAll.length));return pool.filter(function(w){for(var i=0;i<pat.length;i++){var ch=pat[i];if(ch==='#')return false;if(ch!==''&&ch!==w[i])return false}return true})}function selectNext(placed){var best=-1,bestCount=1e9,bestCands=null;for(var i=0;i<slots.length;i++){if(placed[i])continue;var c=cands(slots[i]);if(c.length<bestCount||(c.length===bestCount&&(best===-1||slots[i].len>slots[best].len))){best=i;bestCount=c.length;bestCands=c;if(bestCount===0)break}}return{idx:best,cands:bestCands,count:bestCount}}var back=0;function dfs(placed){if(placed.every(function(x){return x}))return true;var sel=selectNext(placed);if(sel.count===0)return false;var slot=slots[sel.idx];var order=sel.cands.slice(0,160);for(var k=order.length-1;k>0;k--){var j=randi(k+1);var t=order[k];order[k]=order[j];order[j]=t}for(var u=0;u<order.length;u++){var w=order[u];var undo=place(slot,w);used[w]=true;placed[sel.idx]=true;if(dfs(placed))return true;placed[sel.idx]=false;delete used[w];unplace(undo);back++;if(back>maxBacktracks)return false}return false}var placed=slots.map(function(){return false});var ok=dfs(placed);if(!ok)return{ok:false,reason:'search-exhausted'}; // integrity
-  s.push("function numberGrid(grid){var n=grid.length;var no=Array.from({length:n},function(){return Array(n).fill(0)});var id=0;function block(r,c){return grid[r][c]==='#'}for(var r=0;r<n;r++)for(var c=0;c<n;c++){if(block(r,c))continue;var startA=(c===0||block(r,c-1))&&(c+1<n&&!block(r,c+1));var startD=(r===0||block(r-1,c))&&(r+1<n&&!block(r+1,c));if(startA||startD)no[r][c]=++id}return no}");
-  s.push("function entries(grid,numbers){var n=grid.length,across=[],down=[];for(var r=0;r<n;r++)for(var c=0;c<n;c++){if(grid[r][c]==='#')continue;var startA=(c===0||grid[r][c-1]==='#')&&(c+1<n&&grid[r][c+1]!=='#');if(startA){var no=numbers[r][c];var w='',cc=c;while(cc<n&&grid[r][cc]!=='#'){w+=grid[r][cc];cc++}across.push({no:no,answer:w})}}for(var c2=0;c2<n;c2++)for(var r2=0;r2<n;r2++){if(grid[r2][c2]==='#')continue;var startD=(r2===0||grid[r2-1][c2]==='#')&&(r2+1<n&&grid[r2+1][c2]!=='#');if(startD){var no2=numbers[r2][c2];var w2='',rr=r2;while(rr<n&&grid[rr][c2]!=='#'){w2+=grid[rr][c2];rr++}down.push({no:no2,answer:w2})}}across.sort(function(a,b){return a.no-b.no});down.sort(function(a,b){return a.no-b.no});return{across:across,down:down}}");
-  s.push("var nums=numberGrid(letters);var ents=entries(letters,nums);for(var i=0;i<ents.across.length;i++){if(ents.across[i].answer.length<3)return{ok:false,reason:'short-across'};}for(var j=0;j<ents.down.length;j++){if(ents.down[j].answer.length<3)return{ok:false,reason:'short-down'};}return{ok:true,grid:letters,numbers:nums,entries:ents};}");
-  // masked clue helper
-  s.push("function maskedClue(w){var L=w.length;if(L<=2)return w+' ('+L+')';var mid='';for(var i=0;i<L-2;i++){mid+='_ '}return w[0]+' '+mid.trim()+' '+w[L-1]+' ('+L+')'}");
-  // worker logic
-  s.push("self.onmessage=function(e){var data=e.data||{};if(data.cmd!=='build')return;var wls=data.payload.wls||[];var n=data.payload.n||10;var byLen=(function(){var set=new Set();for(var i=0;i<wls.length;i++){var row=wls[i]||{};var ws=row.words||[];for(var k=0;k<ws.length;k++){var ww=String(ws[k]||'').toUpperCase().replace(/[^A-Z]/g,'');if(ww.length>=3&&ww.length<=11)set.add(ww)}} // merge base
-  S3.forEach(function(w){set.add(w)});S4.forEach(function(w){set.add(w)});S5.forEach(function(w){set.add(w)});BASE.forEach(function(b){inflect(b).forEach(function(xx){set.add(xx)})});
-  var dict=[];set.forEach(function(w){var L=w.length;dict.push(w);if(L>=6&&L<=10)dict.push(w)});var bl={};dict.forEach(function(w){var L=w.length;(bl[L]||(bl[L]=[])).push(w)});for(var k in bl){var arr=bl[k];for(var q=arr.length-1;q>0;q--){var j=randi(q+1);var t=arr[q];arr[q]=arr[j];arr[j]=t}}return bl;})();");
-  s.push("var tiers=[{templates:V11,label:'11x11',maxBacktracks:50000,attempts:Math.max(80,n*80)},{templates:V9,label:'9x9',maxBacktracks:40000,attempts:Math.max(80,n*80)},{templates:V7,label:'7x7',maxBacktracks:30000,attempts:Math.max(80,n*80)}]; var out=[],count=0;");
-  s.push("for(var ti=0;ti<tiers.length;ti++){var tier=tiers[ti];var attempts=0;while(count<n && attempts<tier.attempts){attempts++;var tpl=tier.templates[randi(tier.templates.length)];var res=fill(byLen,tpl,tier.maxBacktracks);if(!res.ok)continue;var ac=res.entries.across.map(function(e){return{no:e.no,answer:e.answer,clue:maskedClue(e.answer)}});var dn=res.entries.down.map(function(e){return{no:e.no,answer:e.answer,clue:maskedClue(e.answer)}});out.push({grid:res.grid,numbers:res.numbers,clues:{across:ac,down:dn},size:res.grid.length});count++;postMessage({type:'progress',done:count,total:n,size:res.grid.length})}if(count>=n)break;postMessage({type:'tier',next:'down'})}postMessage({type:'done',puzzles:out})};");
-  s.push("})();");
-  var blob = new Blob([s.join("\n")], {type:"application/javascript"});
-  return URL.createObjectURL(blob);
-}
-
-/* =======================
-   Prepare Puzzles (async; with GPT clues per crossword)
-======================= */
-function setBusy(b){
-  $("btnPlan").disabled=b; $("btnInterior").disabled=b; $("btnCover").disabled=b;
-  $("btnSuggest").disabled=b; $("btnExpand").disabled=b; $("btnCancel").disabled=!b;
-}
-
-$("btnCancel").onclick = ()=>{
-  STATE.cancel = true;
-  if(STATE.worker){ STATE.worker.terminate(); STATE.worker=null; }
-  setBusy(false);
-  Log.write("⛔ Build cancelled.");
-};
-
-$("btnPlan").onclick = async ()=>{
-  try{
-    STATE.cancel=false;
-    const type=$("bookType").value, diffMode=$("difficulty").value;
-    const totalPages=Math.max(20, parseInt($("pages").value,10)||120);
-    const usable = Math.max(0, totalPages - 2); // Title + TOC
-    const n = Math.max(1, Math.floor(usable / 2)); // puzzle + solution per entry
-
-    STATE.plan={sudoku:[], wordsearch:[], crossword:[]};
-
-    if(type==='sudoku'){
-      for(let i=0;i<n;i++){
-        const d=pickDiff(i,n,diffMode); const sol=Sudoku.solved(); const puzzle=Sudoku.mask(sol,d);
-        STATE.plan.sudoku.push({ idx:i+1, diff:d, title:`Sudoku — Puzzle ${i+1} · ${d[0].toUpperCase()+d.slice(1)}`, puzzle, solution: sol });
-      }
-      renderPreview();
-      Log.write(`Prepared — Sudoku:${STATE.plan.sudoku.length} WordSearch:0 Crossword:0`);
-      return;
-    }
-
-    if(type==='wordsearch'){
-      const wls=parseWordlists(); const themes=parseThemes();
-      for(let i=0;i<n;i++){
-        const d=pickDiff(i,n,diffMode);
-        const row=wls[i % Math.max(1,wls.length)] || { theme: (themes[i % Math.max(1,themes.length)] || 'MISC'), words: ["APPLE","ORANGE","BANANA","PEACH","PEAR","PLUM","MANGO","CHERRY","GRAPE","MELON","LEMON","LIME"] };
-        const ws=WordSearch.gen(row.words,14);
-        STATE.plan.wordsearch.push({ idx:i+1, diff:d, theme:row.theme, title:`Word Search — Puzzle ${i+1} · ${d[0].toUpperCase()+d.slice(1)} (Theme: ${row.theme})`, ws });
-      }
-      renderPreview();
-      Log.write(`Prepared — Sudoku:0 WordSearch:${STATE.plan.wordsearch.length} Crossword:0`);
-      return;
-    }
-
-    // CROSSWORD — run in Worker (no UI freeze)
-    const wls=parseWordlists();
-    const workerURL = createCrosswordWorkerURL();
-    let worker;
-    try{
-      worker = new Worker(workerURL);
-    }catch(err){
-      Log.write("Worker init failed; falling back to minimal inline generation.");
-      return fallbackCrosswordOnMain(Math.min(3, n));
-    }
-    STATE.worker = worker; setBusy(true);
-    Log.write(`Crossword: building ${n} puzzles with varied templates (11×11 → 9×9 → 7×7)...`);
-
-    worker.onmessage = async (e)=>{
-      const msg=e.data||{};
-      if(msg.type==='tier'){ Log.write('Crossword fill: switching down tier for reliability.'); }
-      if(msg.type==='progress'){ Log.write(`✓ Crossword ${msg.done}/${msg.total} (${msg.size}×${msg.size})`); }
-      if(msg.type==='done'){
-        const puzzles=msg.puzzles||[];
-        for(let i=0;i<puzzles.length;i++){
-          const p=puzzles[i];
-          const d=pickDiff(i,puzzles.length,diffMode);
-          const item = {
-            idx:i+1,
-            diff:d,
-            theme:'GENERAL',
-            title:`Crossword — Puzzle ${i+1} · ${(diffMode==='mixed'?'Mixed':(diffMode[0].toUpperCase()+diffMode.slice(1)))} (${p.size}×${p.size})`,
-            grid:p.grid,
-            numbers:p.numbers,
-            clues:p.clues
-          };
-          STATE.plan.crossword.push(item);
-
-          // Generate real clues with GPT (one call per puzzle) if API configured
-          if(hasAPI()){
-            try{
-              const real = await generateCluesForPuzzle(item);
-              if(real){ item.clues = real; Log.write(`🧠 Clues generated for Crossword ${i+1}.`); if(i===0) renderPreview(); }
-            }catch(err){ Log.write(`Clue gen failed for Crossword ${i+1}:`, err.message); }
-          }
-        }
-        renderPreview();
-        setBusy(false);
-        worker.terminate(); URL.revokeObjectURL(workerURL); STATE.worker=null;
-        Log.write(`Prepared — Sudoku:0 WordSearch:0 Crossword:${STATE.plan.crossword.length}${hasAPI()?' (with GPT clues)':' (masked clues — no API)'} `);
-      }
-    };
-    worker.onerror = (err)=>{
-      setBusy(false); STATE.worker=null; URL.revokeObjectURL(workerURL);
-      Log.write('Crossword worker error:', err.message || String(err));
-      fallbackCrosswordOnMain(Math.min(3, n));
-    };
-
-    worker.postMessage({ cmd:'build', payload:{ wls, n, diffMode } });
-
-  }catch(e){ Log.write('Generate error:', e.message); setBusy(false); }
-};
-
-/* GPT clues (single call per crossword) */
-async function generateCluesForPuzzle(puzzle){
-  const across = (puzzle.clues?.across||[]).map(o=>({no:o.no, answer:o.answer}));
-  const down   = (puzzle.clues?.down  ||[]).map(o=>({no:o.no, answer:o.answer}));
-  if(!across.length && !down.length) return null;
-
-  const style = (puzzle.diff==='hard')?'cryptic-lite':'american';
-  const prompt = `
-Return STRICT JSON with {"across":[{"no":number,"clue":string}], "down":[{"no":number,"clue":string}]}.
-Write natural, fair clues for an ${style} crossword. Rules:
-- Do NOT include the answer or word length in the clue text.
-- Prefer concise definition/synonym clues; occasional wordplay for harder entries.
-- Avoid proper nouns unless obvious. No obscure trivia.
-Across answers (number: ANSWER): 
-${across.map(x=>`${x.no}: ${x.answer}`).join('\n')}
-Down answers (number: ANSWER): 
-${down.map(x=>`${x.no}: ${x.answer}`).join('\n')}
-`;
-
-  const j = await openaiJSON(prompt);
-  // merge back onto answers (keep answers for printing under the grid)
-  const byNo = (arr)=>{ const m=new Map(); arr.forEach(x=>m.set(Number(x.no), String(x.clue||'').trim())); return m; };
-  const A = byNo(j.across||[]), D = byNo(j.down||[]);
-  return {
-    across: (puzzle.clues.across||[]).map(x=>({no:x.no, answer:x.answer, clue: A.get(x.no)||x.clue})),
-    down:   (puzzle.clues.down  ||[]).map(x=>({no:x.no, answer:x.answer, clue: D.get(x.no)||x.clue}))
-  };
-}
-
-/* Fallback generator (main thread) — tiny placeholder if workers blocked) */
-async function fallbackCrosswordOnMain(target){
-  const sample = ['..#.#..','.#...#.','.......','.#.#.#.','.......','.#...#.','..#.#..'].map(r=>r.split(''));
-  for(let i=0;i<target;i++){
-    const grid = sample.map(r=>r.slice());
-    const numbers=(function(){
-      const n=grid.length, no=Array.from({length:n},()=>Array(n).fill(0)); let id=0;
-      const block=(r,c)=>grid[r][c]==='#';
-      for(let r=0;r<n;r++) for(let c=0;c<n;c++){
-        if(block(r,c)) continue;
-        const startA=(c===0||block(r,c-1))&&(c+1<n&&!block(r,c+1));
-        const startD=(r===0||block(r-1,c))&&(r+1<n&&!block(r+1,c));
-        if(startA||startD) no[r][c]=++id;
-      }
-      return no;
-    })();
-    const clues={ across:[], down:[] };
-    STATE.plan.crossword.push({ idx:STATE.plan.crossword.length+1, diff:'medium', theme:'GENERAL', title:`Crossword — Puzzle ${STATE.plan.crossword.length+1} · Fallback (7×7)`, grid, numbers, clues });
-    if(i===0) renderPreview();
-    await new Promise(r=>setTimeout(r,0));
-  }
-  Log.write(`Prepared — Sudoku:0 WordSearch:0 Crossword:${STATE.plan.crossword.length}`);
-}
-
-/* =======================
-   Interior PDF
-======================= */
-$("btnInterior").onclick = ()=>{
-  try{
-    const { jsPDF } = window.jspdf; const doc=new jsPDF({unit:'pt', format:'letter'}); const W=612,H=792;
-    function footer(){ const n=doc.getNumberOfPages(); doc.setFont('Times','normal'); doc.setFontSize(10); doc.text(String(n), W/2, H-24, {align:'center'}); }
-    function addPage(){ if(doc.getNumberOfPages()>0) doc.addPage('letter','portrait'); }
-    function pageFromCanvas(draw){ const c=document.createElement('canvas'); const ctx=c.getContext('2d'); draw(ctx); const img=c.toDataURL('image/jpeg',0.95); addPage(); doc.addImage(img,'JPEG', 36, 36, W-72, H-72); footer(); }
-
-    const title=($("title").value||'PUZZLE BOOK').toUpperCase(), subtitle=$("subtitle").value||'', author=$("author").value||'Puzzle & Prose Co';
-    const type=$("bookType").value; const plan=STATE.plan[type]||[]; if(!plan.length) return Log.write('Build: prepare puzzles first.');
-
-    // Title
-    doc.setFont('Times','bold'); doc.setFontSize(28); doc.text(title, W/2, H*0.35, {align:'center'});
-    if(subtitle){ doc.setFont('Times','italic'); doc.setFontSize(16); doc.text(subtitle, W/2, H*0.35+26, {align:'center'}); }
-    doc.setFont('Times','normal'); doc.setFontSize(14); doc.text(author, W/2, H*0.35+52, {align:'center'});
-    footer();
-
-    // TOC — puzzles only
-    addPage(); doc.setFont('Times','bold'); doc.setFontSize(22); doc.text('TABLE OF CONTENTS', 36, 72);
-    doc.setFont('Times','normal'); doc.setFontSize(12);
-    let curPage=3; const toc=[]; for(const p of plan){ toc.push({label:p.title, page:curPage}); curPage+=1; }
-    let y=100; const max=W-72;
-    for(const row of toc){
-      let dots=''; const base=row.label+' ';
-      while(doc.getTextWidth(base+dots+row.page) < max) dots+='.';
-      doc.text(`${row.label} ${dots} ${row.page}`, 36, y); y+=18;
-      if(y>H-60){ addPage(); y=72; }
-    }
-    footer();
-
-    // Puzzles
-    for(const p of plan){
-      pageFromCanvas(ctx=>{
-        if(type==='sudoku') Sudoku.draw(ctx, p.puzzle, p.title, true);
-        if(type==='wordsearch') WordSearch.draw(ctx, p.ws, p.title);
-        if(type==='crossword') CrosswordDraw.drawPuzzle(ctx, p.grid, p.numbers, p.title, p.clues);
-      });
-    }
-    // Solutions
-    for(const p of plan){
-      pageFromCanvas(ctx=>{
-        if(type==='sudoku') Sudoku.draw(ctx, p.solution, `Solution — Sudoku — Puzzle ${p.idx}`);
-        if(type==='wordsearch') WordSearch.drawSolution(ctx, p.ws, `Solution — Word Search — Puzzle ${p.idx}`);
-        if(type==='crossword') CrosswordDraw.drawSolution(ctx, p.grid, p.numbers, `Solution — Crossword — Puzzle ${p.idx}`);
-      });
-    }
-
-    const blob=doc.output('blob'); const url=URL.createObjectURL(blob);
-    const a=document.createElement('a'); a.href=url; a.download='interior.pdf'; a.click();
-    $("dlLast").href=url; $("dlLast").download='interior.pdf';
-    Log.write('✓ interior.pdf generated.');
-  }catch(e){ Log.write('PDF error:', e.message); }
-};
-
-/* =======================
-   Wraparound Cover
-======================= */
-$("btnCover").onclick = ()=>{
-  try{
-    const { jsPDF } = window.jspdf;
-    const pages=Math.max(20, parseInt($("pages").value,10)||120);
-    const per=0.002252; const spineIn=pages*per;
-    const trimW=8.5, trimH=11, bleed=0.125; const DPI=72;
-    const coverWIn=bleed+trimW+spineIn+trimW+bleed, coverHIn=bleed+trimH+bleed;
-    const W=coverWIn*DPI, H=coverHIn*DPI;
-    const doc=new jsPDF({ unit:'pt', format:[W,H] });
-
-    doc.setFillColor(245,245,245); doc.rect(0,0,W,H,'F');
-    const backW=(bleed+trimW)*DPI; const spineW=spineIn*DPI; const frontX=backW+spineW;
-
-    doc.setDrawColor(180); doc.rect(0,0,W,H);
-    const safeW=2*DPI, safeH=1.2*DPI; doc.setDrawColor(200);
-    doc.rect( (bleed*DPI)+(trimW*DPI)-safeW-24, (coverHIn*DPI)-(bleed*DPI)-safeH-24, safeW, safeH);
-
-    const title=($("title").value||'PUZZLE BOOK').toUpperCase();
-    const author=$("author").value||'Puzzle & Prose Co';
-
-    doc.setFont('times','bold'); doc.setFontSize(22);
-    doc.text(title, frontX + (trimW*DPI)/2, (coverHIn*DPI)/2 - 10, {align:'center'});
-    doc.setFont('times','normal'); doc.setFontSize(12);
-    doc.text(author, frontX + (trimW*DPI)/2, (coverHIn*DPI)/2 + 14, {align:'center'});
-
-    doc.setFont('times','bold'); doc.setFontSize(12);
-    const spineX = backW + spineW/2;
-    doc.text(title, spineX, (coverHIn*DPI)/2, {angle:90, align:'center'});
-
-    doc.setFont('times','italic'); doc.setFontSize(12);
-    doc.text('Puzzle & Prose Co', (trimW*DPI)/2, (coverHIn*DPI)/2, {align:'center'});
-
-    const blob = doc.output('blob'); const url = URL.createObjectURL(blob);
-    const a=document.createElement('a'); a.href=url; a.download='cover-wrap.pdf'; a.click();
-    $("dlLast").href = url; $("dlLast").download='cover-wrap.pdf';
-    Log.write('✓ cover-wrap.pdf generated. Spine ~ ' + spineIn.toFixed(3) + ' in');
-  }catch(e){ Log.write('Cover error:', e.message); }
-};
-
-/* =======================
-   Boot
-======================= */
-(function boot(){
-  const canvas=$("preview"); const ctx=canvas.getContext('2d');
-  ctx.fillStyle="#101317"; ctx.fillRect(0,0,canvas.width=800,canvas.height=980);
-  ctx.fillStyle="#9aa4b2"; ctx.font="14px Arial"; ctx.fillText("No plan yet. Click Prepare Puzzles.",24,30);
-  $("btnClearLog").onclick = ()=>{ $("log").textContent=''; };
-})();
-</script>
-</body>
-</html>
+ (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
+diff --git a/index.html b/index.html
+index 8433596b511f28116c42b2aa9392489a96d45c2f..0c622af2ce39a9107a97acc95a6fdd236b3be136 100644
+--- a/index.html
++++ b/index.html
+@@ -58,188 +58,228 @@
+         </div>
+       </div>
+ 
+       <div class="row">
+         <div>
+           <label>Total Pages</label>
+           <input id="pages" type="number" value="120" min="20" step="2"/>
+         </div>
+         <div>
+           <label>Trim</label>
+           <select id="trim">
+             <option value="letter">8.5 × 11 in (Letter)</option>
+           </select>
+         </div>
+       </div>
+ 
+       <label>Title</label>
+       <input id="title" placeholder="e.g., The Giant Puzzle Book"/>
+ 
+       <label>Subtitle</label>
+       <input id="subtitle" placeholder="Optional subtitle"/>
+ 
+       <label>Author / Imprint</label>
+       <input id="author" value="Puzzle & Prose Co"/>
+ 
++      <label>OpenAI API Key <span class="muted" style="font-weight:400">(optional)</span></label>
++      <input id="apiKey" type="password" placeholder="sk-..."/>
++
++      <div class="row">
++        <div>
++          <label style="font-size:12px">Project ID</label>
++          <input id="projectId" placeholder="proj_..."/>
++        </div>
++        <div>
++          <label style="font-size:12px">Org ID</label>
++          <input id="orgId" placeholder="org_..."/>
++        </div>
++      </div>
++
+       <hr style="border:none;border-top:1px solid var(--border);margin:12px 0"/>
+ 
+       <div class="row" style="margin-top:8px">
+         <button id="btnSuggest" class="secondary">Get GPT Suggestions</button>
+         <button id="btnExpand" class="secondary">Expand Wordlists to 60</button>
+       </div>
+ 
+       <label>Themes (one per line)</label>
+       <textarea id="themes" placeholder="BIRDS&#10;OCEAN&#10;GARDEN"></textarea>
+ 
+       <label>Word Lists (CSV — THEME, WORD1, WORD2, ...)</label>
+       <textarea id="wordlists" placeholder="BIRDS, ROBIN, SWALLOW, EAGLE, FALCON, PARROT, ..."></textarea>
+ 
+       <div class="row" style="margin-top:10px">
+         <button id="btnPlan">Prepare Puzzles</button>
+         <button id="btnInterior">Build Interior PDF</button>
+       </div>
+       <div class="row" style="margin-top:10px">
+         <button id="btnCover">Build Cover PDF</button>
+         <button id="btnCancel" class="secondary" disabled>Cancel Build</button>
+       </div>
+     </div>
+ 
+     <div class="card">
+       <div class="row">
+         <button id="btnClearLog" class="secondary">Clear Log</button>
+         <a id="dlLast" class="secondary" style="text-align:center;display:block;padding:10px;text-decoration:none;border-radius:8px;border:1px solid var(--border);color:#dbe4f3" href="#" download>Download last PDF</a>
+       </div>
++      <div class="row" style="margin-top:10px">
++        <button id="btnExportPlan" class="secondary">Export Plan JSON</button>
++        <button id="btnImportPlan" class="secondary">Import Plan JSON</button>
++      </div>
++      <input type="file" id="planFile" accept=".json" style="display:none"/>
+       <label>Log</label>
+       <div id="log"></div>
+     </div>
+   </aside>
+ 
+   <section>
+     <div class="card">
+       <label>Preview</label>
+       <canvas id="preview"></canvas>
+       <div class="muted" style="margin-top:6px">Preview shows the first puzzle; export uses the cached plan.</div>
+     </div>
+   </section>
+ </main>
+ 
+ <script>
+ /* =======================
+    Config (optional GPT)
+    Leave empty to run fully offline.
+ ======================= */
+-const FORCE_API_KEY    = "";     // "sk-..." or "sk-proj-..."
+-const FORCE_PROJECT_ID = "";     // "proj_..." (required for sk-proj-)
+-const FORCE_ORG_ID     = "";     // optional
++let FORCE_API_KEY    = "";     // "sk-..." or "sk-proj-..."
++let FORCE_PROJECT_ID = "";     // "proj_..." (required for sk-proj-)
++let FORCE_ORG_ID     = "";     // optional
++
++const getAPIKey    = ()=> ($("apiKey")?.value || FORCE_API_KEY).trim();
++const getProjectId = ()=> ($("projectId")?.value || FORCE_PROJECT_ID).trim();
++const getOrgId     = ()=> ($("orgId")?.value || FORCE_ORG_ID).trim();
+ 
+ /* =======================
+    Utilities & State
+ ======================= */
+ const $ = id => document.getElementById(id);
+ const Log = { write(...a){ const el=$("log"); el.textContent += a.join(" ") + "\n"; el.scrollTop = el.scrollHeight; } };
+ window.addEventListener('error', e=> Log.write('JS Error:', e.message));
+ 
+ let RNG = Math.random;
+ function randi(n){ return Math.floor(RNG()*n); }
+ function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=randi(i+1); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+ 
+ const STATE = { plan: { sudoku:[], wordsearch:[], crossword:[] }, worker:null, cancel:false };
+ 
+ function parseThemes(){ const t=$("themes").value.trim(); return t? t.split(/\n+/).map(s=>s.trim()).filter(Boolean):[]; }
+ function parseWordlists(){
+   const txt = $("wordlists").value.trim(); if(!txt) return [];
+   const lines = txt.split(/\n+/).map(s=>s.trim()).filter(Boolean); const out=[];
+   for(const line of lines){
+     const parts=line.split(/\s*,\s*/).map(x=>x.trim()).filter(Boolean);
+     if(!parts.length) continue;
+     const theme=(parts[0]||'MISC').toUpperCase().replace(/[^A-Z0-9 ]/g,'');
+     const words=parts.slice(1).map(w=>w.toUpperCase().replace(/[^A-Z]/g,'')).filter(Boolean);
+     out.push({ theme, words });
+   }
+   return out;
+ }
+-const hasAPI = ()=> !!(FORCE_API_KEY && FORCE_API_KEY.trim());
++const hasAPI = ()=> !!getAPIKey();
+ 
+ /* =======================
+    OpenAI (optional)
+ ======================= */
+ async function openaiJSON(prompt){
+-  const key  = (FORCE_API_KEY||"").trim();
+-  if(!key) throw new Error("No API key configured — set FORCE_API_KEY at the top.");
+-  const proj = (FORCE_PROJECT_ID||"").trim();
+-  const org  = (FORCE_ORG_ID||"").trim();
++  const key  = getAPIKey();
++  if(!key) throw new Error("No API key configured — paste it in the OpenAI API Key field.");
++  const proj = getProjectId();
++  const org  = getOrgId();
+ 
+   const headers = { "Content-Type":"application/json", "Authorization":`Bearer ${key}` };
+   if(key.startsWith("sk-proj-") && proj) headers["OpenAI-Project"] = proj;
+   if(org) headers["OpenAI-Organization"] = org;
+ 
+   const body = { model:"gpt-4o-mini", temperature:0.2, response_format:{type:"json_object"}, messages:[{role:"user", content: prompt}] };
+ 
+   const res = await fetch("https://api.openai.com/v1/chat/completions", { method:"POST", headers, body: JSON.stringify(body) });
+   const text = await res.text();
+   if(!res.ok){ throw new Error(text); }
+ 
+   let content;
+   try{ const j=JSON.parse(text); content=(j?.choices?.[0]?.message?.content||"").trim(); }catch{ throw new Error("Unexpected API response"); }
+   if(/^```/.test(content)) content = content.replace(/^```[a-zA-Z]*\n?|```$/g,"");
+   try{ return JSON.parse(content); }catch{ const m=content.match(/\{[\s\S]*\}/); if(!m) throw new Error("No JSON found"); return JSON.parse(m[0]); }
+ }
+ 
+ /* =======================
+    Sudoku
+ ======================= */
+ const Sudoku = (function(){
++  function can(g,r,c,v){
++    for(let i=0;i<9;i++) if(g[r][i]===v||g[i][c]===v) return false;
++    const br=Math.floor(r/3)*3, bc=Math.floor(c/3)*3;
++    for(let rr=br;rr<br+3;rr++) for(let cc=bc;cc<bc+3;cc++) if(g[rr][cc]===v) return false;
++    return true;
++  }
+   function solved(){
+     const g=Array.from({length:9},()=>Array(9).fill(0));
+     const nums=[1,2,3,4,5,6,7,8,9];
+-    function can(r,c,v){
+-      for(let i=0;i<9;i++) if(g[r][i]===v||g[i][c]===v) return false;
+-      const br=Math.floor(r/3)*3, bc=Math.floor(c/3)*3;
+-      for(let rr=br;rr<br+3;rr++) for(let cc=bc;cc<bc+3;cc++) if(g[rr][cc]===v) return false;
+-      return true;
+-    }
+     function solve(k=0){
+       if(k===81) return true;
+       const r=Math.floor(k/9), c=k%9;
+       const order=shuffle(nums.slice());
+-      for(const v of order){ if(can(r,c,v)){ g[r][c]=v; if(solve(k+1)) return true; g[r][c]=0; } }
++      for(const v of order){ if(can(g,r,c,v)){ g[r][c]=v; if(solve(k+1)) return true; g[r][c]=0; } }
+       return false;
+     }
+     solve(0); return g;
+   }
++  function hasUniqueSolution(p){
++    const g=p.map(r=>r.slice());
++    let count=0;
++    function search(){
++      let r=-1,c=-1;
++      for(let i=0;i<81;i++){ const rr=Math.floor(i/9), cc=i%9; if(g[rr][cc]===0){ r=rr; c=cc; break; } }
++      if(r===-1){ count++; return; }
++      for(let v=1; v<=9 && count<2; v++){
++        if(can(g,r,c,v)){ g[r][c]=v; search(); g[r][c]=0; }
++      }
++    }
++    search(); return count===1;
++  }
+   function mask(sol,diff){
+     const clues = { easy:40, medium:32, hard:26 }[diff] || 32;
+-    const g = sol.map(r=>r.slice()); let rem=81-clues;
+-    while(rem>0){
+-      const r=randi(9), c=randi(9);
+-      if(g[r][c]!==0){
+-        const r2=8-r, c2=8-c;
+-        g[r][c]=0; rem--;
+-        if(rem>0 && g[r2][c2]!==0){ g[r2][c2]=0; rem--; }
++    for(let attempt=0; attempt<100; attempt++){
++      const g = sol.map(r=>r.slice());
++      let filled=81;
++      while(filled>clues){
++        const r=randi(9), c=randi(9);
++        if(g[r][c]!==0){
++          const r2=8-r, c2=8-c;
++          g[r][c]=0; filled--;
++          if((r2!==r||c2!==c) && filled>clues && g[r2][c2]!==0){ g[r2][c2]=0; filled--; }
++        }
+       }
++      if(hasUniqueSolution(g)) return g;
+     }
+-    return g;
++    return sol.map(r=>r.slice());
+   }
+   function draw(ctx, grid, title, withNote=false){
+     const W=800,H=1000; ctx.canvas.width=W; ctx.canvas.height=H;
+     ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);
+     ctx.fillStyle="#000"; ctx.font="bold 22px Arial"; ctx.fillText(title, 40, 40);
+     if(withNote){ ctx.font="12px Arial"; ctx.fillText("Fill digits 1–9. No repeats in rows, columns, or 3×3 boxes.", 40, 62); }
+     const size=Math.min(W-80,H-140), cell=size/9, x0=40, y0=90; ctx.strokeStyle="#000"; ctx.lineWidth=1;
+     for(let r=0;r<9;r++) for(let c=0;c<9;c++){
+       const x=x0+c*cell, y=y0+r*cell; ctx.strokeRect(x,y,cell,cell);
+       const v=grid[r][c];
+       if(v){ ctx.font=`${Math.floor(cell*0.6)}px Arial`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(String(v), x+cell/2, y+cell/2); }
+     }
+     ctx.lineWidth=3; for(let i=0;i<=9;i+=3){
+       ctx.beginPath(); ctx.moveTo(x0, y0+i*cell); ctx.lineTo(x0+9*cell, y0+i*cell); ctx.stroke();
+       ctx.beginPath(); ctx.moveTo(x0+i*cell, y0); ctx.lineTo(x0+i*cell, y0+9*cell); ctx.stroke();
+     }
+   }
+   return { solved, mask, draw };
+ })();
+ 
+ /* =======================
+    Word Search
+ ======================= */
+ const WordSearch = (function(){
+   function cleanWords(words){
+diff --git a/index.html b/index.html
+index 8433596b511f28116c42b2aa9392489a96d45c2f..0c622af2ce39a9107a97acc95a6fdd236b3be136 100644
+--- a/index.html
++++ b/index.html
+@@ -731,33 +771,60 @@ $("btnCover").onclick = ()=>{
+     const author=$("author").value||'Puzzle & Prose Co';
+ 
+     doc.setFont('times','bold'); doc.setFontSize(22);
+     doc.text(title, frontX + (trimW*DPI)/2, (coverHIn*DPI)/2 - 10, {align:'center'});
+     doc.setFont('times','normal'); doc.setFontSize(12);
+     doc.text(author, frontX + (trimW*DPI)/2, (coverHIn*DPI)/2 + 14, {align:'center'});
+ 
+     doc.setFont('times','bold'); doc.setFontSize(12);
+     const spineX = backW + spineW/2;
+     doc.text(title, spineX, (coverHIn*DPI)/2, {angle:90, align:'center'});
+ 
+     doc.setFont('times','italic'); doc.setFontSize(12);
+     doc.text('Puzzle & Prose Co', (trimW*DPI)/2, (coverHIn*DPI)/2, {align:'center'});
+ 
+     const blob = doc.output('blob'); const url = URL.createObjectURL(blob);
+     const a=document.createElement('a'); a.href=url; a.download='cover-wrap.pdf'; a.click();
+     $("dlLast").href = url; $("dlLast").download='cover-wrap.pdf';
+     Log.write('✓ cover-wrap.pdf generated. Spine ~ ' + spineIn.toFixed(3) + ' in');
+   }catch(e){ Log.write('Cover error:', e.message); }
+ };
+ 
+ /* =======================
+    Boot
+ ======================= */
+ (function boot(){
++  [
++    ["apiKey",     FORCE_API_KEY],
++    ["projectId",  FORCE_PROJECT_ID],
++    ["orgId",      FORCE_ORG_ID]
++  ].forEach(([id,val])=>{ if(val) $(id).value = val; });
++
+   const canvas=$("preview"); const ctx=canvas.getContext('2d');
+   ctx.fillStyle="#101317"; ctx.fillRect(0,0,canvas.width=800,canvas.height=980);
+   ctx.fillStyle="#9aa4b2"; ctx.font="14px Arial"; ctx.fillText("No plan yet. Click Prepare Puzzles.",24,30);
+   $("btnClearLog").onclick = ()=>{ $("log").textContent=''; };
++  $("btnExportPlan").onclick = ()=>{
++    const data=JSON.stringify(STATE.plan,null,2);
++    const blob=new Blob([data],{type:'application/json'});
++    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='plan.json'; a.click();
++    Log.write('✓ Plan exported.');
++  };
++  $("btnImportPlan").onclick = ()=> $("planFile").click();
++  $("planFile").addEventListener('change', e=>{
++    const file=e.target.files[0]; if(!file) return;
++    const reader=new FileReader();
++    reader.onload=evt=>{
++      try{
++        const plan=JSON.parse(evt.target.result);
++        STATE.plan={ sudoku:plan.sudoku||[], wordsearch:plan.wordsearch||[], crossword:plan.crossword||[] };
++        renderPreview();
++        Log.write('✓ Plan imported.');
++      }catch(err){ Log.write('Import error:', err.message); }
++    };
++    reader.readAsText(file);
++    e.target.value='';
++  });
+ })();
+ </script>
+ </body>
+ </html>
+ 
+EOF
+)
